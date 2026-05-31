@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Instrument_Serif } from "next/font/google";
+import { Inter, Fraunces, Lora } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({
@@ -8,30 +8,37 @@ const inter = Inter({
   display: "swap",
 });
 
-const serif = Instrument_Serif({
+const fraunces = Fraunces({
   subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
+  variable: "--font-display",
+  display: "swap",
+  axes: ["opsz", "SOFT"],
+});
+
+const lora = Lora({
+  subsets: ["latin"],
   variable: "--font-serif",
   display: "swap",
+  style: ["normal", "italic"],
 });
 
 export const metadata: Metadata = {
-  title: "Curious — swipe to learn",
-  description: "Tinder for book insights. Doom-scroll, but learn something.",
+  title: "Curious — long reads for curious minds",
+  description: "Premium long-form essays distilling the world's most influential non-fiction. 10–15 minute reads.",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#07070a",
+  themeColor: "#faf8f3",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${serif.variable}`}>
+    <html
+      lang="en"
+      className={`${inter.variable} ${fraunces.variable} ${lora.variable}`}
+    >
       <body>{children}</body>
     </html>
   );

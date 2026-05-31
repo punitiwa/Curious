@@ -1,15 +1,29 @@
 import { z } from "zod";
 
-export const CardSchema = z.object({
-  insight_text: z
+export const ArticleSchema = z.object({
+  title: z
     .string()
-    .min(60)
+    .describe("Compelling article title. Not the book title — a magazine-style headline."),
+  subtitle: z
+    .string()
+    .describe("One-line deck/dek beneath the title. The promise of the piece."),
+  reading_time_min: z
+    .number()
+    .int()
+    .min(8)
+    .max(18)
+    .describe("Estimated reading time in minutes (target 10–15)."),
+  body_markdown: z
+    .string()
+    .min(2000)
     .describe(
-      "A standalone teaching that explains the idea — concept + why it matters + the mechanism. 2–5 sentences. No artificial brevity, no quotes, no fluff."
+      "Long-form essay in markdown. ~2000–3000 words. Use ## section headings, paragraphs, occasional > blockquote for emphasis, and - bullet lists sparingly. NO h1; the title is rendered separately."
     ),
-  actionable_takeaway: z
-    .string()
-    .describe("One sentence: a concrete thing the user can do today."),
+  key_takeaways: z
+    .array(z.string())
+    .min(3)
+    .max(5)
+    .describe("3–5 single-sentence takeaways the reader should leave with."),
 });
 
 export const BookSchema = z.object({
@@ -18,15 +32,15 @@ export const BookSchema = z.object({
   category: z
     .string()
     .describe(
-      "e.g., Psychology, Productivity, Philosophy, Behavioral Economics, Software, Startups, Leadership, Finance, Health"
+      "e.g., Psychology, Productivity, Philosophy, Behavioral Economics, Software, Startups, Leadership, Finance, Health, Creativity"
     ),
-  cards: z.array(CardSchema).length(3),
+  article: ArticleSchema,
 });
 
 export const BatchSchema = z.object({
   books: z.array(BookSchema),
 });
 
-export type Card = z.infer<typeof CardSchema>;
+export type Article = z.infer<typeof ArticleSchema>;
 export type Book = z.infer<typeof BookSchema>;
 export type Batch = z.infer<typeof BatchSchema>;
