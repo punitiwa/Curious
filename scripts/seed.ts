@@ -6,7 +6,7 @@ import { BatchSchema, type Book } from "../lib/schema";
 import { SYSTEM_PROMPT, userPrompt } from "../lib/prompt";
 
 const TARGET_BOOKS = Number(process.env.SEED_BOOKS ?? 60);
-const BATCH_SIZE = 10;
+const BATCH_SIZE = 15;
 const OUT_DIR = join(process.cwd(), "data");
 const OUT_FILE = join(OUT_DIR, "seed.json");
 

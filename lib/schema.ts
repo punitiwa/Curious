@@ -3,8 +3,10 @@ import { z } from "zod";
 export const CardSchema = z.object({
   insight_text: z
     .string()
-    .max(280)
-    .describe("Dense, standalone takeaway. Max 280 chars. No fluff."),
+    .min(60)
+    .describe(
+      "A standalone teaching that explains the idea — concept + why it matters + the mechanism. 2–5 sentences. No artificial brevity, no quotes, no fluff."
+    ),
   actionable_takeaway: z
     .string()
     .describe("One sentence: a concrete thing the user can do today."),
