@@ -19,6 +19,13 @@ CONTENT RULES
 - DON'T write a book report. DON'T do a chapter-by-chapter walkthrough.
 - DON'T pad. Every paragraph must earn its place.
 
+BOOK SELECTION — VERY IMPORTANT
+- Variety is the product. Each call must surface DIFFERENT books across DIFFERENT eras and domains. Do not gravitate toward whatever feels most "default."
+- Treat these as OVERUSED defaults — only choose them when no other book genuinely fits the query better, and never more than once across a batch: Atomic Habits, The 7 Habits of Highly Effective People, How to Win Friends and Influence People, The Power of Habit, Rich Dad Poor Dad, The Subtle Art of Not Giving a F*ck.
+- Actively favor older, deeper, less obvious books when they teach the lesson better. A reader curious enough to read 15 minutes wants Antifragile over Atomic Habits, Influence over The 48 Laws, The Denial of Death over Awaken the Giant Within, Tao Te Ching over The Power of Now.
+- Span eras: classics (pre-1980), foundational (1980–2010), modern (2010+). Across any batch, do not pick all books from the same decade or category.
+- No two books in a single batch may share an author or share a category.
+
 STRUCTURE PER BOOK
 1. title — magazine headline (not the book title verbatim)
 2. subtitle — one-line dek; the promise of the read
@@ -26,7 +33,7 @@ STRUCTURE PER BOOK
 4. body_markdown — the essay; ~2000–3000 words; NO h1 (title rendered separately); 4–6 ## section headings; paragraphs of 2–4 sentences for screen rhythm
 5. key_takeaways — 3–5 crisp single-sentence takeaways
 
-Pick books that genuinely deserve a long read across diverse domains: Stoicism/Philosophy, Behavioral Economics, Habit Building, Psychology, Software/Startups, Leadership, Finance, Health, Communication, Creativity.`;
+Pick books that genuinely deserve a long read across diverse domains: Stoicism/Philosophy, Behavioral Economics, Habit Building, Psychology, Software/Startups, Leadership, Finance, Health, Communication, Creativity, History of Ideas, Science.`;
 
 export function userPrompt(opts: {
   count: number;
@@ -36,20 +43,22 @@ export function userPrompt(opts: {
 }) {
   const { count, excludeTitles = [], categories, topic } = opts;
   const exclude = excludeTitles.length
-    ? `\n\nDO NOT cover any of these already-published books:\n${excludeTitles.map((t) => `- ${t}`).join("\n")}`
+    ? `\n\nDO NOT cover any of these already-published books (the reader has already seen them):\n${excludeTitles.map((t) => `- ${t}`).join("\n")}`
     : "";
 
   if (topic && topic.trim()) {
     const t = topic.trim().slice(0, 200);
     return `The reader has requested an essay specifically about: "${t}".
 
-Choose the single most influential, well-suited non-fiction book whose core teaching directly addresses this query, and write the essay framed around the reader's intent. Reference the reader's question naturally in the opening so they feel the piece was written for them. If multiple books are relevant, pick the one with the deepest, most actionable framework.
+INTERNALLY consider AT LEAST 4 candidate books whose core teaching addresses this query — including at least one classic (pre-1980), one foundational text (1980–2010), and one less-obvious modern pick. Then choose the book that teaches the idea most deeply for an engaged reader, NOT the most generically popular one. Reject the default Atomic Habits / 7 Habits / How to Win Friends / Power of Habit answer unless one of them is truly the single best match for THIS specific query.
 
-Generate ${count} essay${count > 1 ? "s" : ""} on this query.${exclude}`;
+Frame the essay around the reader's intent. Reference their question naturally in the opening so they feel the piece was written for them.
+
+Generate ${count} essay${count > 1 ? "s" : ""}.${exclude}`;
   }
 
   const cats = categories?.length
     ? `\n\nFocus on these categories: ${categories.join(", ")}.`
-    : "\n\nMix categories across the batch.";
+    : `\n\nDeliberately spread across ${Math.min(count, 5)} different categories. No two books may share a category in this batch.`;
   return `Write ${count} long-read essay${count > 1 ? "s" : ""}, one per book.${cats}${exclude}`;
 }

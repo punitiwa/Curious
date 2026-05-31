@@ -13,16 +13,52 @@ import type { Book } from "@/lib/schema";
 
 const PREFETCH_THRESHOLD = 1;
 const BATCH_SIZE = 2;
+const SEEN_STORAGE_KEY = "curious:seen-titles:v1";
+const SEEN_MAX = 200;
+
+// Bias the first session away from the LLM's overused defaults.
+const DEFAULT_EXCLUDE = [
+  "Atomic Habits",
+  "The 7 Habits of Highly Effective People",
+  "How to Win Friends and Influence People",
+  "The Power of Habit",
+];
+
+function loadSeen(initial: Book[]): Set<string> {
+  const base = new Set<string>([
+    ...DEFAULT_EXCLUDE,
+    ...initial.map((b) => b.book_title),
+  ]);
+  if (typeof window === "undefined") return base;
+  try {
+    const raw = window.localStorage.getItem(SEEN_STORAGE_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) arr.forEach((t) => typeof t === "string" && base.add(t));
+    }
+  } catch {}
+  return base;
+}
+
+function persistSeen(s: Set<string>) {
+  if (typeof window === "undefined") return;
+  try {
+    const arr = [...s].slice(-SEEN_MAX);
+    window.localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(arr));
+  } catch {}
+}
 
 export default function Reader({ initial }: { initial: Book[] }) {
   const [queue, setQueue] = useState<Book[]>(initial);
   const [index, setIndex] = useState(0);
-  const [seenTitles, setSeenTitles] = useState<Set<string>>(
-    () => new Set(initial.map((b) => b.book_title))
-  );
+  const [seenTitles, setSeenTitles] = useState<Set<string>>(() => loadSeen(initial));
   const [loading, setLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const inflight = useRef(false);
+
+  useEffect(() => {
+    persistSeen(seenTitles);
+  }, [seenTitles]);
 
   const fetchMore = useCallback(async () => {
     if (inflight.current) return;
