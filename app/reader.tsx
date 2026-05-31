@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -12,7 +11,7 @@ import remarkGfm from "remark-gfm";
 import { AnimatePresence, motion, useScroll, useSpring } from "framer-motion";
 import type { Book } from "@/lib/schema";
 
-const PREFETCH_THRESHOLD = 1; // when only N articles remain after current, fetch more
+const PREFETCH_THRESHOLD = 1;
 const BATCH_SIZE = 2;
 
 export default function Reader({ initial }: { initial: Book[] }) {
@@ -22,6 +21,7 @@ export default function Reader({ initial }: { initial: Book[] }) {
     () => new Set(initial.map((b) => b.book_title))
   );
   const [loading, setLoading] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const inflight = useRef(false);
 
   const fetchMore = useCallback(async () => {
@@ -51,7 +51,24 @@ export default function Reader({ initial }: { initial: Book[] }) {
     }
   }, [seenTitles]);
 
-  // Prefetch when running low
+  const fetchTopic = useCallback(
+    async (topic: string): Promise<Book | null> => {
+      const res = await fetch("/api/cards", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          count: 1,
+          topic,
+          excludeTitles: [...seenTitles].slice(-100),
+        }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { books: Book[] };
+      return data.books?.[0] ?? null;
+    },
+    [seenTitles]
+  );
+
   const remaining = queue.length - index - 1;
   useEffect(() => {
     if (remaining <= PREFETCH_THRESHOLD) fetchMore();
@@ -63,11 +80,22 @@ export default function Reader({ initial }: { initial: Book[] }) {
   const next = useCallback(() => {
     if (!upNext) return;
     setIndex((i) => i + 1);
-    // Scroll to top after transition
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    });
+    requestAnimationFrame(() => window.scrollTo({ top: 0 }));
   }, [upNext]);
+
+  const handleSearchResult = useCallback(
+    (book: Book) => {
+      setSeenTitles((s) => new Set(s).add(book.book_title));
+      setQueue((prev) => {
+        const next = [...prev];
+        next.splice(index + 1, 0, book);
+        return next;
+      });
+      setIndex((i) => i + 1);
+      requestAnimationFrame(() => window.scrollTo({ top: 0 }));
+    },
+    [index]
+  );
 
   return (
     <>
@@ -76,6 +104,15 @@ export default function Reader({ initial }: { initial: Book[] }) {
         position={index + 1}
         total={queue.length}
         loading={loading}
+        onSearch={() => setSearchOpen(true)}
+        onRefresh={() => window.location.reload()}
+      />
+
+      <SearchOverlay
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onSubmit={fetchTopic}
+        onResult={handleSearchResult}
       />
 
       <main className="relative z-[1] mx-auto w-full max-w-[680px] px-5 pb-32 pt-20 sm:px-8 sm:pt-24">
@@ -100,6 +137,7 @@ export default function Reader({ initial }: { initial: Book[] }) {
                 upNext={upNext}
                 loading={loading}
                 onNext={next}
+                onSearch={() => setSearchOpen(true)}
               />
             </motion.article>
           ) : (
@@ -127,14 +165,18 @@ function TopBar({
   position,
   total,
   loading,
+  onSearch,
+  onRefresh,
 }: {
   position: number;
   total: number;
   loading: boolean;
+  onSearch: () => void;
+  onRefresh: () => void;
 }) {
   return (
     <div className="fixed inset-x-0 top-0 z-40 border-b border-[color:var(--rule)] bg-[color:var(--paper)]/85 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-[1100px] items-center justify-between px-5 sm:px-8">
+      <div className="mx-auto flex h-14 max-w-[1100px] items-center justify-between gap-3 px-4 sm:px-8">
         <div className="flex items-center gap-2.5">
           <div className="grid h-7 w-7 place-items-center rounded-md bg-[color:var(--ink)] text-[12px] font-bold text-[color:var(--paper)]">
             C
@@ -143,14 +185,202 @@ function TopBar({
             Curious
           </span>
         </div>
-        <div className="flex items-center gap-3 text-[12px] text-[color:var(--ink-muted)]">
-          {loading && <span className="hidden sm:inline">curating…</span>}
-          <span className="tabular-nums">
-            {position} <span className="text-[color:var(--ink-muted)]/60">/ {total}</span>
+
+        <div className="flex items-center gap-1">
+          <IconButton label="Search" onClick={onSearch}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </IconButton>
+          <IconButton label="Refresh" onClick={onRefresh}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </IconButton>
+          <span className="ml-2 text-[12px] tabular-nums text-[color:var(--ink-muted)]">
+            {loading ? "…" : <>{position}<span className="opacity-60"> / {total}</span></>}
           </span>
         </div>
       </div>
     </div>
+  );
+}
+
+function IconButton({
+  children,
+  label,
+  onClick,
+}: {
+  children: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      className="grid h-9 w-9 place-items-center rounded-full text-[color:var(--ink-soft)] transition-colors hover:bg-[color:var(--paper-deep)] active:bg-[color:var(--paper-deep)]"
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ---------- search overlay ---------- */
+
+function SearchOverlay({
+  open,
+  onClose,
+  onSubmit,
+  onResult,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (topic: string) => Promise<Book | null>;
+  onResult: (book: Book) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      setError(null);
+      setTimeout(() => inputRef.current?.focus(), 80);
+    } else {
+      setQuery("");
+      setSubmitting(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !submitting) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, submitting, onClose]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = query.trim();
+    if (!q || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const book = await onSubmit(q);
+      if (!book) {
+        setError("Couldn't generate that essay. Try a different angle.");
+        return;
+      }
+      onResult(book);
+      onClose();
+    } catch {
+      setError("Network hiccup. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const SUGGESTIONS = [
+    "how to negotiate",
+    "self-motivation",
+    "deep focus",
+    "managing anxiety",
+    "thinking in bets",
+    "building habits",
+  ];
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => !submitting && onClose()}
+            className="fixed inset-0 z-[60] bg-[color:var(--ink)]/30 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.25, ease: [0.22, 0.61, 0.36, 1] }}
+            className="fixed inset-x-0 top-0 z-[70] px-4 pt-[max(env(safe-area-inset-top),16px)]"
+          >
+            <div className="mx-auto max-w-[640px] overflow-hidden rounded-2xl bg-[color:var(--paper)] shadow-[0_30px_80px_-30px_rgba(26,24,20,0.4)] ring-1 ring-[color:var(--rule)]">
+              <form onSubmit={submit} className="flex items-center gap-3 px-4 py-3.5">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="shrink-0 text-[color:var(--ink-muted)]">
+                  <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+                <input
+                  ref={inputRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="What do you want to read about?"
+                  disabled={submitting}
+                  className="font-display flex-1 bg-transparent text-[18px] font-medium tracking-tight text-[color:var(--ink)] placeholder:text-[color:var(--ink-muted)]/70 focus:outline-none"
+                />
+                {submitting ? (
+                  <div className="flex items-center gap-2 text-[12px] text-[color:var(--ink-muted)]">
+                    <Spinner />
+                    <span className="hidden sm:inline">writing…</span>
+                  </div>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!query.trim()}
+                    className="rounded-full bg-[color:var(--ink)] px-4 py-1.5 text-[13px] font-semibold text-[color:var(--paper)] disabled:opacity-30"
+                  >
+                    Read
+                  </button>
+                )}
+              </form>
+
+              <div className="border-t border-[color:var(--rule)] px-4 py-4">
+                {error ? (
+                  <div className="text-[13px] text-[color:var(--accent)]">{error}</div>
+                ) : submitting ? (
+                  <div className="text-[13px] text-[color:var(--ink-muted)]">
+                    Drafting your essay — usually 30–60 seconds.
+                  </div>
+                ) : (
+                  <>
+                    <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
+                      Try
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {SUGGESTIONS.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setQuery(s)}
+                          className="rounded-full border border-[color:var(--rule)] bg-[color:var(--paper-deep)]/50 px-3 py-1.5 text-[13px] text-[color:var(--ink-soft)] transition-colors hover:bg-[color:var(--paper-deep)]"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -223,11 +453,13 @@ function Footer({
   upNext,
   loading,
   onNext,
+  onSearch,
 }: {
   book: Book;
   upNext?: Book;
   loading: boolean;
   onNext: () => void;
+  onSearch: () => void;
 }) {
   return (
     <footer className="mt-16">
@@ -237,30 +469,43 @@ function Footer({
           You finished “{book.article.title}”
         </div>
 
-        <button
-          onClick={onNext}
-          disabled={!upNext}
-          className="group inline-flex items-center gap-3 rounded-full bg-[color:var(--ink)] px-7 py-3.5 text-[15px] font-semibold text-[color:var(--paper)] shadow-[0_18px_40px_-18px_rgba(26,24,20,0.55)] transition-transform duration-200 hover:translate-y-[-1px] disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <span>{upNext ? "Read next" : loading ? "Preparing next read…" : "Caught up"}</span>
-          {upNext && (
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              className="transition-transform group-hover:translate-x-0.5"
-            >
-              <path
-                d="M5 12h14M13 6l6 6-6 6"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <button
+            onClick={onNext}
+            disabled={!upNext}
+            className="group inline-flex items-center gap-3 rounded-full bg-[color:var(--ink)] px-7 py-3.5 text-[15px] font-semibold text-[color:var(--paper)] shadow-[0_18px_40px_-18px_rgba(26,24,20,0.55)] transition-transform duration-200 hover:translate-y-[-1px] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span>{upNext ? "Read next" : loading ? "Preparing next read…" : "Caught up"}</span>
+            {upNext && (
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                className="transition-transform group-hover:translate-x-0.5"
+              >
+                <path
+                  d="M5 12h14M13 6l6 6-6 6"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+          </button>
+
+          <button
+            onClick={onSearch}
+            className="inline-flex items-center gap-2 rounded-full border border-[color:var(--rule)] bg-[color:var(--paper)] px-5 py-3 text-[14px] font-medium text-[color:var(--ink-soft)] transition-colors hover:bg-[color:var(--paper-deep)]"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
             </svg>
-          )}
-        </button>
+            Read something specific
+          </button>
+        </div>
 
         {upNext && (
           <div className="max-w-md">

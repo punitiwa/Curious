@@ -32,11 +32,22 @@ export function userPrompt(opts: {
   count: number;
   excludeTitles?: string[];
   categories?: string[];
+  topic?: string;
 }) {
-  const { count, excludeTitles = [], categories } = opts;
+  const { count, excludeTitles = [], categories, topic } = opts;
   const exclude = excludeTitles.length
     ? `\n\nDO NOT cover any of these already-published books:\n${excludeTitles.map((t) => `- ${t}`).join("\n")}`
     : "";
+
+  if (topic && topic.trim()) {
+    const t = topic.trim().slice(0, 200);
+    return `The reader has requested an essay specifically about: "${t}".
+
+Choose the single most influential, well-suited non-fiction book whose core teaching directly addresses this query, and write the essay framed around the reader's intent. Reference the reader's question naturally in the opening so they feel the piece was written for them. If multiple books are relevant, pick the one with the deepest, most actionable framework.
+
+Generate ${count} essay${count > 1 ? "s" : ""} on this query.${exclude}`;
+  }
+
   const cats = categories?.length
     ? `\n\nFocus on these categories: ${categories.join(", ")}.`
     : "\n\nMix categories across the batch.";
