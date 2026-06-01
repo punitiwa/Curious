@@ -32,7 +32,7 @@ async function main() {
     console.log(`→ Generating batch of ${count}...`);
 
     const { object } = await generateObject({
-      model: openai("gpt-4o-mini"),
+      model: openai.chat("gpt-4o-mini"),
       schema: BatchSchema,
       system: SYSTEM_PROMPT,
       prompt: userPrompt({

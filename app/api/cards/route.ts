@@ -19,13 +19,18 @@ export async function POST(req: NextRequest) {
     ? body.categories
     : undefined;
 
-  const { object } = await generateObject({
-    model: openai("gpt-4o-mini"),
-    schema: BatchSchema,
-    system: SYSTEM_PROMPT,
-    prompt: userPrompt({ count, excludeTitles, categories, topic }),
-    temperature: 0.85,
-  });
+  try {
+    const { object } = await generateObject({
+      model: openai.chat("gpt-4o-mini"),
+      schema: BatchSchema,
+      system: SYSTEM_PROMPT,
+      prompt: userPrompt({ count, excludeTitles, categories, topic }),
+      temperature: 0.85,
+    });
 
-  return Response.json(object);
+    return Response.json(object);
+  } catch (err) {
+    console.error("generateObject failed:", err);
+    return Response.json({ error: "Failed to generate content" }, { status: 500 });
+  }
 }
