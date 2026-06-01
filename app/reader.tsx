@@ -11,6 +11,22 @@ import remarkGfm from "remark-gfm";
 import { AnimatePresence, motion, useScroll, useSpring } from "framer-motion";
 import type { Book } from "@/lib/schema";
 
+type PartialArticle = {
+  title?: string;
+  subtitle?: string;
+  reading_time_min?: number;
+  body_markdown?: string;
+  key_takeaways?: string[];
+};
+
+type PartialBook = {
+  book_title?: string;
+  author?: string;
+  source_type?: string;
+  category?: string;
+  article?: PartialArticle;
+};
+
 const PREFETCH_THRESHOLD = 1;
 const BATCH_SIZE = 2;
 const SEEN_STORAGE_KEY = "curious:seen-titles:v1";
@@ -54,8 +70,10 @@ export default function Reader({ initial }: { initial: Book[] }) {
   const [seenTitles, setSeenTitles] = useState<Set<string>>(() => loadSeen(initial));
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
+  const [streamingBook, setStreamingBook] = useState<PartialBook | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const inflight = useRef(false);
+  const latestPartialRef = useRef<PartialBook | null>(null);
 
   useEffect(() => {
     persistSeen(seenTitles);
@@ -94,6 +112,64 @@ export default function Reader({ initial }: { initial: Book[] }) {
     }
   }, [seenTitles]);
 
+  const streamFirst = useCallback(async () => {
+    if (inflight.current) return;
+    inflight.current = true;
+    setFetchError(false);
+    setStreamingBook(null);
+    latestPartialRef.current = null;
+
+    try {
+      const res = await fetch("/api/cards/stream", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ excludeTitles: [...seenTitles].slice(-150) }),
+      });
+
+      if (!res.ok || !res.body) {
+        setFetchError(true);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const partial = JSON.parse(line) as PartialBook;
+            latestPartialRef.current = partial;
+            setStreamingBook({ ...partial });
+          } catch {}
+        }
+      }
+
+      const finalBook = latestPartialRef.current;
+      if (finalBook?.article?.body_markdown) {
+        setSeenTitles((s) => {
+          const next = new Set(s);
+          if (finalBook.book_title) next.add(finalBook.book_title);
+          return next;
+        });
+        setQueue((prev) => [...prev, finalBook as Book]);
+        setStreamingBook(null);
+      } else {
+        setFetchError(true);
+      }
+    } catch {
+      setFetchError(true);
+    } finally {
+      inflight.current = false;
+    }
+  }, [seenTitles]);
+
   const fetchTopic = useCallback(
     async (topic: string): Promise<Book | null> => {
       const res = await fetch("/api/cards", {
@@ -113,9 +189,17 @@ export default function Reader({ initial }: { initial: Book[] }) {
   );
 
   const remaining = queue.length - index - 1;
+
+  // On mount with empty seed: stream the first article word-by-word.
   useEffect(() => {
-    if (remaining <= PREFETCH_THRESHOLD) fetchMore();
-  }, [remaining, fetchMore]);
+    if (initial.length === 0) streamFirst();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // While reading: silently batch-fetch when the queue runs low.
+  useEffect(() => {
+    if (queue.length > 0 && remaining <= PREFETCH_THRESHOLD) fetchMore();
+  }, [remaining, fetchMore, queue.length]);
 
   const current = queue[index];
   const upNext = queue[index + 1];
@@ -183,8 +267,13 @@ export default function Reader({ initial }: { initial: Book[] }) {
                 onSearch={() => setSearchOpen(true)}
               />
             </motion.article>
+          ) : streamingBook ? (
+            <StreamingArticle key="streaming" book={streamingBook} />
           ) : (
-            <EmptyState loading={loading} error={fetchError} onRetry={fetchMore} />
+            <EmptyState
+              error={fetchError}
+              onRetry={queue.length === 0 ? streamFirst : fetchMore}
+            />
           )}
         </AnimatePresence>
       </main>
@@ -586,15 +675,90 @@ function Footer({
   );
 }
 
-function EmptyState({
-  loading,
-  error,
-  onRetry,
-}: {
-  loading: boolean;
-  error: boolean;
-  onRetry: () => void;
-}) {
+function StreamingArticle({ book }: { book: PartialBook }) {
+  const a = book.article;
+  const sourceLabel =
+    SOURCE_LABELS[(book.source_type as string) ?? "book"] ?? "Distilled from";
+  const showAuthor = !["history", "science", "philosophy", "other"].includes(
+    (book.source_type as string) ?? "book"
+  );
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, ease: [0.22, 0.61, 0.36, 1] }}
+    >
+      {/* Skeleton until first fields arrive */}
+      {!a?.title && (
+        <div className="space-y-5 pt-2">
+          <div className="h-3 w-20 animate-pulse rounded bg-[color:var(--rule)]" />
+          <div className="h-11 w-3/4 animate-pulse rounded bg-[color:var(--rule)]" />
+          <div className="h-6 w-1/2 animate-pulse rounded bg-[color:var(--rule)]" />
+        </div>
+      )}
+
+      {a?.title && (
+        <header>
+          <div className="mb-6 flex items-center gap-3 text-[12px] uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
+            {book.category && (
+              <span className="font-medium text-[color:var(--accent)]">{book.category}</span>
+            )}
+            {book.category && a.reading_time_min && <span>·</span>}
+            {a.reading_time_min && <span>{a.reading_time_min} min read</span>}
+          </div>
+
+          <h1 className="font-display text-[40px] font-semibold leading-[1.08] tracking-[-0.022em] text-[color:var(--ink)] sm:text-[52px]">
+            {a.title}
+          </h1>
+
+          {a.subtitle && (
+            <p className="mt-5 font-serif text-[20px] italic leading-snug text-[color:var(--ink-soft)] sm:text-[22px]">
+              {a.subtitle}
+            </p>
+          )}
+
+          {book.book_title && (
+            <div className="mt-8 flex items-center gap-3 border-y border-[color:var(--rule)] py-4">
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-[color:var(--paper-deep)] font-display text-[15px] font-semibold text-[color:var(--ink)]">
+                {initialsOf(book.author ?? "?")}
+              </div>
+              <div className="leading-tight">
+                <div className="text-[14px] font-semibold text-[color:var(--ink)]">
+                  {sourceLabel} <em className="font-serif italic">{book.book_title}</em>
+                </div>
+                {showAuthor && book.author && (
+                  <div className="text-[12.5px] text-[color:var(--ink-muted)]">
+                    by {book.author}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </header>
+      )}
+
+      {a?.body_markdown && (
+        <div className="prose-essay mt-10">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{a.body_markdown}</ReactMarkdown>
+          <StreamCursor />
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+function StreamCursor() {
+  return (
+    <motion.span
+      className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] rounded-sm bg-[color:var(--ink-muted)]"
+      animate={{ opacity: [1, 0] }}
+      transition={{ duration: 0.7, repeat: Infinity, ease: "steps(1, end)" }}
+    />
+  );
+}
+
+function EmptyState({ error, onRetry }: { error: boolean; onRetry: () => void }) {
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
       <div className="font-display text-[28px] font-semibold tracking-tight text-[color:var(--ink)]">
@@ -605,8 +769,8 @@ function EmptyState({
           ? "Couldn't generate content right now. Check your connection and try again."
           : "Generating an interesting read for you. This takes about 30–60 seconds."}
       </p>
-      {loading && <Spinner />}
-      {error && !loading && (
+      {!error && <Spinner />}
+      {error && (
         <button
           onClick={onRetry}
           className="mt-2 rounded-full bg-[color:var(--ink)] px-6 py-2.5 text-[14px] font-semibold text-[color:var(--paper)] transition-opacity hover:opacity-80"
