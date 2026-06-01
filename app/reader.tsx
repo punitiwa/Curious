@@ -53,6 +53,7 @@ export default function Reader({ initial }: { initial: Book[] }) {
   const [index, setIndex] = useState(0);
   const [seenTitles, setSeenTitles] = useState<Set<string>>(() => loadSeen(initial));
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const inflight = useRef(false);
 
@@ -64,6 +65,7 @@ export default function Reader({ initial }: { initial: Book[] }) {
     if (inflight.current) return;
     inflight.current = true;
     setLoading(true);
+    setFetchError(false);
     try {
       const res = await fetch("/api/cards", {
         method: "POST",
@@ -73,7 +75,10 @@ export default function Reader({ initial }: { initial: Book[] }) {
           excludeTitles: [...seenTitles].slice(-150),
         }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setFetchError(true);
+        return;
+      }
       const data = (await res.json()) as { books: Book[] };
       setSeenTitles((s) => {
         const next = new Set(s);
@@ -81,6 +86,8 @@ export default function Reader({ initial }: { initial: Book[] }) {
         return next;
       });
       setQueue((prev) => [...prev, ...data.books]);
+    } catch {
+      setFetchError(true);
     } finally {
       inflight.current = false;
       setLoading(false);
@@ -177,7 +184,7 @@ export default function Reader({ initial }: { initial: Book[] }) {
               />
             </motion.article>
           ) : (
-            <EmptyState loading={loading} />
+            <EmptyState loading={loading} error={fetchError} onRetry={fetchMore} />
           )}
         </AnimatePresence>
       </main>
@@ -422,8 +429,23 @@ function SearchOverlay({
 
 /* ---------- article parts ---------- */
 
+const SOURCE_LABELS: Record<string, string> = {
+  book: "Distilled from",
+  research: "Based on research by",
+  history: "From history —",
+  science: "From science —",
+  concept: "Exploring",
+  documentary: "Inspired by",
+  philosophy: "From philosophy —",
+  other: "About",
+};
+
 function ArticleHeader({ book }: { book: Book }) {
   const a = book.article;
+  const sourceLabel = SOURCE_LABELS[book.source_type ?? "book"] ?? "Distilled from";
+  const showAuthor =
+    !["history", "science", "philosophy", "other"].includes(book.source_type ?? "book");
+
   return (
     <header>
       <div className="mb-6 flex items-center gap-3 text-[12px] uppercase tracking-[0.18em] text-[color:var(--ink-muted)]">
@@ -446,11 +468,13 @@ function ArticleHeader({ book }: { book: Book }) {
         </div>
         <div className="leading-tight">
           <div className="text-[14px] font-semibold text-[color:var(--ink)]">
-            Distilled from <em className="font-serif italic">{book.book_title}</em>
+            {sourceLabel} <em className="font-serif italic">{book.book_title}</em>
           </div>
-          <div className="text-[12.5px] text-[color:var(--ink-muted)]">
-            by {book.author}
-          </div>
+          {showAuthor && (
+            <div className="text-[12.5px] text-[color:var(--ink-muted)]">
+              by {book.author}
+            </div>
+          )}
         </div>
       </div>
     </header>
@@ -562,18 +586,34 @@ function Footer({
   );
 }
 
-function EmptyState({ loading }: { loading: boolean }) {
+function EmptyState({
+  loading,
+  error,
+  onRetry,
+}: {
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
+}) {
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
       <div className="font-display text-[28px] font-semibold tracking-tight text-[color:var(--ink)]">
-        {loading ? "Curating your first read…" : "No articles yet"}
+        {error ? "Something went wrong" : "Writing your first read…"}
       </div>
       <p className="max-w-sm text-[15px] text-[color:var(--ink-muted)]">
-        {loading
-          ? "Our editors are drafting an essay tailored for a curious mind. This takes about a minute."
-          : "Run the seeder or hit refresh once content is generated."}
+        {error
+          ? "Couldn't generate content right now. Check your connection and try again."
+          : "Generating an interesting read for you. This takes about 30–60 seconds."}
       </p>
       {loading && <Spinner />}
+      {error && !loading && (
+        <button
+          onClick={onRetry}
+          className="mt-2 rounded-full bg-[color:var(--ink)] px-6 py-2.5 text-[14px] font-semibold text-[color:var(--paper)] transition-opacity hover:opacity-80"
+        >
+          Try again
+        </button>
+      )}
     </div>
   );
 }
